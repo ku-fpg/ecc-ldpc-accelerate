@@ -1,0 +1,29 @@
+name:                ecc-ldpc-accelerate
+version:             0.1.0
+synopsis:            Framework for testing LDPC.
+description:
+license:             BSD3
+license-file:        LICENSE
+author:              Andy Gill
+maintainer:          Andy Gill <andygill@ku.edu>
+copyright:           (C) 2013 The University of Kansas
+category:            Codec
+build-type:          Simple
+cabal-version:       >=1.8
+
+executable ecc-ldpc-accelerate
+  build-depends:
+                accelerate,
+                array           == 0.4.*,
+                base            == 4.6.*,
+                matrix          == 0.2.*,
+                mtl             == 2.1.*,
+                mwc-random      == 0.13.*,
+                statistics      == 0.10.*,
+                vector          == 0.10.*,
+                ecc-manifold    == 0.1.0,
+                ecc-ldpc        == 0.1.0                
+  Main-is: Main.hs
+  hs-source-dirs: src, main
+  Ghc-options: -O2 -threaded
+
