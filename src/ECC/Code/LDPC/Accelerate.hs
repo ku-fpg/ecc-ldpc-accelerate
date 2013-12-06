@@ -41,26 +41,34 @@ code = Code ["ldpc/reference/<matrix-name>/<max-rounds>[/<truncation-size>]"]
                 _                       -> return []
 
 ---------------------------------------------------------------------
+dotp :: (Elt e, IsNum e) => Acc (Vector e) -> Acc (Vector e) -> Acc (Scalar e)
+dotp u v = fold (+) 0
+         ( A.zipWith (*) u v )
 
-encoder :: G -> V Bit -> V Bit
-encoder g v = getRow 1 (Data.Matrix.multStd (rowVector v) g)
-
-mvm :: Acc (Array DIM2 Int) -> Acc (Vector Int) -> Acc (Vector Int)
+mvm :: (Elt e, IsNum e) => Acc (Array DIM2 e) -> Acc (Vector e) -> Acc (Vector e)
 mvm mat vec =
   let Z :. rows :. _ = unlift (shape mat) :: Z :. Exp Int :. Exp Int
   in generate (index1 rows)
               (\ix -> the (vec `dotp` takeRow (unindex1 ix) mat))
 
-dotp :: (Elt e, IsNum e) => Acc (Vector e) -> Acc (Vector e) -> Acc (Scalar e)
-dotp u v = fold (+) 0
-         ( A.zipWith (*) u v )
-
-takeRow :: (Elt e) => Exp Int -> Acc (Array DIM2 e) -> Acc (Vector e)
+takeRow :: (Elt e, IsNum e) => Exp Int -> Acc (Array DIM2 e) -> Acc (Vector e)
 takeRow n mat =
   let Z :. _ :. cols = unlift (shape mat) :: Z:. Exp Int :. Exp Int
   in backpermute (index1 cols)
                  (\ix -> index2 n (unindex1 ix))
                  mat
+
+{-
+encoder :: G -> V Bit -> V Bit
+encoder g v = getRow 1 (Data.Matrix.multStd (rowVector v) g)
+
+I do not think we need to use takeRow here because mvm returns a vector,
+whereas multStd returns a matrix
+-}
+encoder :: (Elt e, IsNum e) => G -> V e -> V e
+encoder g v = mvm g v
+
+
 {-
 instance Elt Bit where
   eltType _ = Type.PairTuple Type.UnitTuple (Type.SingleTuple Type.scalarType)
