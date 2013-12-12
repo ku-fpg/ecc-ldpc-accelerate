@@ -128,9 +128,6 @@ decoder_acc1 = Decoder
 
                 let interm_arrA = A.zipWith (\ n v -> - ((lamA A.! index1 n) - v)) nsA neA in
 
-                let interm_arr = U.fromList (A.toList (run interm_arrA)) in
-                let interm_arr' = U.zipWith (\ (_,n) v -> - ((lam U.! (n-1)) - v)) mns ne in
-
                 let falseA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift False) in
 
                 let signA = A.permute (/=*)
@@ -138,20 +135,6 @@ decoder_acc1 = Decoder
                                       (\ ix -> index1 (msA A.! ix))
                                       (A.map (<* 0) (interm_arrA)) :: Acc (Array DIM1 Bool) in
 
-
-                let sign' = U.accumulate (\ a b -> if b < 0 then not a else a)
-                                   (U.generate (nrows m_opt) (const False))
-                                   (U.zip (U.map (pred . fst) mns) interm_arr) in
-
-                let sign = U.zipWith (\ b1 b2 -> if b1 == b2 then b2 else (traceShow (b1,b2) b1))
-                                     sign'
-                                     (U.fromList (A.toList (run signA))) in
-
-                let val' = U.accumulate (\ (b,c) a -> if abs a <= b
-                                                     then (abs a,b)
-                                                     else (b,min (abs a) c))
-                                   (U.generate (nrows m_opt) (const (1/0,1/0)))     -- IEEE magic
-                                   (U.zip (U.map (pred . fst) mns) interm_arr) in
 
                 let infsA = A.generate (index1 (lift (length vs))) (\ _ -> lift (1/0::Double,1/0::Double)) in
 
@@ -166,18 +149,6 @@ decoder_acc1 = Decoder
                                 (\ ix -> index1 (msA A.! ix))
                                 (A.map (\ v -> lift (abs v,1/0::Double)) interm_arrA) :: Acc (Array DIM1 (Double,Double)) in
 
-                let val = U.zipWith (\ a b -> if a == b then a else traceShow (a,b) a)
-                                    val'
-                                     (U.fromList (A.toList (run valA))) in
-
-                let ans2 = U.zipWith (\ (m,_) v ->
-                                        let sgn = if sign U.! (m-1) == (v < 0) then 1 else -1 in
-                                        let (a,b) = val U.! (m-1) in
-                                        if a == abs v
-                                        then (-0.75) * sgn * b
-                                        else (-0.75) * sgn * a
-                                     ) mns interm_arr in
-
                 let ans2A = A.zipWith (\ m v ->
 
                                         let sgn = ((signA A.! index1 m) ==* (v <* 0)) ? (1,-1) :: Exp Double in
@@ -188,9 +159,8 @@ decoder_acc1 = Decoder
                                            ) :: Exp Double
                                      ) msA interm_arrA in
 
-                (U.zipWith (\ a b -> if a == b then a else traceShow (a,b) b)
-                                        (U.fromList (A.toList (run ans2A)))
-                                        ans2)
+
+                (U.fromList (A.toList (run ans2A)))
 --                (traceShow comp ans1)
         , comp_lam     = \ (m_opt,_,mns) orig_lam ne' ->
                 U.accum (+) orig_lam [ (n-1,v) | ((_,n),v) <- U.toList mns `zip` U.toList ne' ]
