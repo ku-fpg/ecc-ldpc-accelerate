@@ -20,6 +20,7 @@ executable ecc-ldpc-accelerate
                 mtl             == 2.1.*,
                 mwc-random      == 0.13.*,
                 statistics      == 0.10.*,
+                semigroups      == 0.12.*,
                 vector          == 0.10.*,
                 ecc-manifold    == 0.1.0,
                 ecc-ldpc        == 0.1.0                

@@ -13,6 +13,7 @@ import qualified Data.Matrix
 import Data.Matrix ((!))
 import Data.Matrix (nrows, ncols, getCol, getRow, colVector, rowVector)
 import qualified Data.Vector as V
+import Data.Semigroup ((<>), Monoid, mconcat)
 
 import Data.Array.Accelerate.Interpreter as I
 import Data.Array.Accelerate hiding ((++), product, take, all, (!))
@@ -29,12 +30,19 @@ import Data.Matrix (Matrix)
 import qualified Data.Matrix as M
 
 import qualified ECC.Code.LDPC.Reference as Ref
+import qualified ECC.Code.LDPC.Model as Mod
 
 code :: Code
-code = mkLDPC_Code "accel" encoder decoder
+code = mconcat [  mkLDPC_Code ("accel-" ++ show i ++ "-" ++ show j) e d
+               | (i,e) <- [0..] `Prelude.zip` encoders
+               , (j,d) <- [0..] `Prelude.zip` decoders
+               ]
+
+encoders = [Mod.encoder4,encoder]
+decoders = [Mod.decoder Mod.decoder8]
 
 decoder :: Matrix Bit -> Int -> [Double] -> IO [Bit]
-decoder = Ref.decoder
+decoder = Mod.decoder Mod.decoder8
 
 type G = Matrix Bit
 
