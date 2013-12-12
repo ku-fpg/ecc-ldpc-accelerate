@@ -15,7 +15,7 @@ import Data.Matrix (nrows, ncols, getCol, getRow, colVector, rowVector)
 import qualified Data.Vector as V
 import Data.Alist
 
-import Data.Array.Accelerate.Interpreter
+import Data.Array.Accelerate.Interpreter as I
 import Data.Array.Accelerate hiding ((++), product, take, all, (!))
 import qualified Data.Array.Accelerate as A
 
@@ -25,12 +25,13 @@ import qualified Data.Array.Accelerate.Type as Type
 import Debug.Trace
 import Data.Typeable
 import Data.Word
+import qualified Data.Bits as Bits
 
 
 code :: Code
-code = Code ["ldpc/reference/<matrix-name>/<max-rounds>[/<truncation-size>]"]
+code = Code ["ldpc/accelerate/<matrix-name>/<max-rounds>[/<truncation-size>]"]
      $ \ xs -> case xs of
-                ["ldpc","reference",m,n]
+                ["ldpc","accelerate",m,n]
                         | all isDigit n -> fmap (: []) $ mkLDPC ("reference") m (read n) encoder ldpc
                 ["ldpc","debug",m,n]
                         | all isDigit n -> fmap (: []) $ mkLDPC ("debug") m (read n) encoder ldpc
@@ -45,11 +46,39 @@ dotp :: (Elt e, IsNum e) => Acc (Vector e) -> Acc (Vector e) -> Acc (Scalar e)
 dotp u v = fold (+) 0
          ( A.zipWith (*) u v )
 
+encoder :: G -> V Bit -> V Bit
+--encoder g v | traceShow ("encoder",g,v) False = undefined
+encoder g v = r -- traceShow ("encoder2",(use $ toAccBitArray g), (use $ toAccBitVector v),r) r
+  where
+        r = fromAccBitVector
+            $ run
+            $ mvm (use $ toAccBitArray g)
+                  (use $ toAccBitVector v)
+--            = getRow 1 (Data.Matrix.multStd (rowVector v) g)
+
+toAccBitArray :: M Bit -> Array DIM2 Word8
+toAccBitArray mat = A.fromList (Z :. nrows mat :. ncols mat)
+                [ Prelude.fromIntegral $ mat ! (m,n) | m <- [1..nrows mat], n <- [1..ncols mat]]
+
+toAccBitVector :: V Bit -> Vector Word8
+toAccBitVector vec = A.fromList (Z :. V.length vec) $ fmap (Prelude.fromIntegral) $ V.toList vec
+
+fromAccBitVector :: Vector Word8 -> V Bit
+fromAccBitVector = fmap mask . V.fromList . A.toList
+  where mask :: Word8 -> Bit
+--        mask = undefined
+        mask = mkBit . flip Bits.testBit 0
+
 mvm :: (Elt e, IsNum e) => Acc (Array DIM2 e) -> Acc (Vector e) -> Acc (Vector e)
 mvm mat vec =
-  let Z :. rows :. _ = unlift (shape mat) :: Z :. Exp Int :. Exp Int
-  in generate (index1 rows)
-              (\ix -> the (vec `dotp` takeRow (unindex1 ix) mat))
+  let Z :. rows :. cols = unlift (shape mat) :: Z :. Exp Int :. Exp Int
+      vec'              = A.replicate (lift (Z :. All :. cols)) vec
+  in
+--  traceShow ("mvm mat",run mat) $
+--  traceShow ("mvm vec",run vec) $
+--  traceShow ("mvm rows",rows) $
+--  traceShow ("mvm vec'",run vec') $
+  fold (+) 0 (A.transpose (A.zipWith (*) vec' mat))
 
 takeRow :: (Elt e, IsNum e) => Exp Int -> Acc (Array DIM2 e) -> Acc (Vector e)
 takeRow n mat =
@@ -58,44 +87,43 @@ takeRow n mat =
                  (\ix -> index2 n (unindex1 ix))
                  mat
 
-{-
-encoder :: G -> V Bit -> V Bit
-encoder g v = getRow 1 (Data.Matrix.multStd (rowVector v) g)
 
-I do not think we need to use takeRow here because mvm returns a vector,
-whereas multStd returns a matrix
--}
-encoder :: (Elt e, IsNum e) => G -> V e -> V e
-encoder g v = mvm g v
+--encoder :: (Elt e, IsNum e) => G -> V e -> V e
+--encoder g v = mvm g v
 
 
-{-
 instance Elt Bit where
   eltType _ = Type.PairTuple Type.UnitTuple (Type.SingleTuple Type.scalarType)
-  fromElt v = ((), v)
-  toElt ((), v) = v
+  fromElt v = ((), Sugar.fromElt' v)
+  toElt ((), v) = Sugar.toElt' v
 
   eltType' _ = Type.SingleTuple Type.scalarType
-  fromElt' = id
-  toElt' = id
+  fromElt' v = if getBit v then 1 else 0
+  toElt' 0 = 0
+  toElt' 1 = 1
+  toElt' _ = error "toElt' _ :: Bit"
 
-type instance Sugar.EltRepr' Bit = Bit
-type instance Sugar.EltRepr Bit = ((),Bit)
+type instance Sugar.EltRepr' Bit = Word8
+type instance Sugar.EltRepr Bit = ((),Word8)
 
+{-
 instance Data.ArrayElt Bit where
+-}
 
-instance Type.IsBounded Bit where
-  boundedType = Type.IntegralBoundedType integralType
+--instance Type.IsBounded Bit where
+--  boundedType = Type.IntegralBoundedType Type.integralType
 
-instance Type.IsIntegral Bit where
-  integralType = Type.TypeInt Type.IntegralDict
+--instance Type.IsIntegral Bit where
+--  integralType = error "Opps" -- Type.TypeInt Type.IntegralDict
 
 instance Type.IsNum Bit where
-  numType = Type.IntegralNumType Type.integralType
+  numType = Type.IntegralNumType undefined -- Type.integralType
 
 instance Type.IsScalar Bit where
   scalarType = Type.NumScalarType Type.numType
--}
+
+
+{-
 
 newtype Bit' = Bit' Word8
 
@@ -105,6 +133,7 @@ deriving instance Typeable Bit'
 
 type instance Sugar.EltRepr' Bit' = Word8
 type instance Sugar.EltRepr Bit' = ((),Word8)
+-}
 
 ---------------------------------------------------------------------
 
