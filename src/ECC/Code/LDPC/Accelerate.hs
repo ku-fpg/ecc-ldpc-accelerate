@@ -13,7 +13,6 @@ import qualified Data.Matrix
 import Data.Matrix ((!))
 import Data.Matrix (nrows, ncols, getCol, getRow, colVector, rowVector)
 import qualified Data.Vector as V
-import Data.Alist
 
 import Data.Array.Accelerate.Interpreter as I
 import Data.Array.Accelerate hiding ((++), product, take, all, (!))
@@ -26,29 +25,26 @@ import Debug.Trace
 import Data.Typeable
 import Data.Word
 import qualified Data.Bits as Bits
+import Data.Matrix (Matrix)
+import qualified Data.Matrix as M
 
+import qualified ECC.Code.LDPC.Reference as Ref
 
 code :: Code
-code = Code ["ldpc/accelerate/<matrix-name>/<max-rounds>[/<truncation-size>]"]
-     $ \ xs -> case xs of
-                ["ldpc","accelerate",m,n]
-                        | all isDigit n -> fmap (: []) $ mkLDPC ("reference") m (read n) encoder ldpc
-                ["ldpc","debug",m,n]
-                        | all isDigit n -> fmap (: []) $ mkLDPC ("debug") m (read n) encoder ldpc
-                ["ldpc","reference",m,n,t]
-                        | all isDigit n
-                       && all isDigit t -> fmap (: []) $ fmap (punctureTail (read t))
-                                                       $ mkLDPC ("reference") m (read n) encoder ldpc
-                _                       -> return []
+code = mkLDPC_Code "accel" encoder decoder
+
+decoder :: Matrix Bit -> Int -> [Double] -> IO [Bit]
+decoder = Ref.decoder
+
+type G = Matrix Bit
 
 ---------------------------------------------------------------------
-dotp :: (Elt e, IsNum e) => Acc (Vector e) -> Acc (Vector e) -> Acc (Scalar e)
-dotp u v = fold (+) 0
-         ( A.zipWith (*) u v )
 
-encoder :: G -> V Bit -> V Bit
+encoder :: G -> [Bit] -> IO [Bit]
 --encoder g v | traceShow ("encoder",g,v) False = undefined
-encoder g v = r -- traceShow ("encoder2",(use $ toAccBitArray g), (use $ toAccBitVector v),r) r
+encoder g v = do
+--        print ("encoder2",(use $ toAccBitArray g), (use $ toAccBitVector v),r,length r)
+        return (v ++ r)
   where
         r = fromAccBitVector
             $ run
@@ -56,15 +52,15 @@ encoder g v = r -- traceShow ("encoder2",(use $ toAccBitArray g), (use $ toAccBi
                   (use $ toAccBitVector v)
 --            = getRow 1 (Data.Matrix.multStd (rowVector v) g)
 
-toAccBitArray :: M Bit -> Array DIM2 Word8
+toAccBitArray :: G -> Array DIM2 Word8
 toAccBitArray mat = A.fromList (Z :. nrows mat :. ncols mat)
                 [ Prelude.fromIntegral $ mat ! (m,n) | m <- [1..nrows mat], n <- [1..ncols mat]]
 
-toAccBitVector :: V Bit -> Vector Word8
-toAccBitVector vec = A.fromList (Z :. V.length vec) $ fmap (Prelude.fromIntegral) $ V.toList vec
+toAccBitVector :: [Bit] -> Vector Word8
+toAccBitVector vec = A.fromList (Z :. length vec) $ fmap (Prelude.fromIntegral) vec
 
-fromAccBitVector :: Vector Word8 -> V Bit
-fromAccBitVector = fmap mask . V.fromList . A.toList
+fromAccBitVector :: Vector Word8 -> [Bit]
+fromAccBitVector = fmap mask . A.toList
   where mask :: Word8 -> Bit
 --        mask = undefined
         mask = mkBit . flip Bits.testBit 0
@@ -87,7 +83,7 @@ takeRow n mat =
                  (\ix -> index2 n (unindex1 ix))
                  mat
 
-
+{-
 --encoder :: (Elt e, IsNum e) => G -> V e -> V e
 --encoder g v = mvm g v
 
@@ -180,4 +176,4 @@ ldpc a maxIterations orig_lam = return $ fmap hard $ loop 0 orig_ne orig_lam
                           ]
 
 
-
+-}

@@ -11,7 +11,7 @@ import qualified ECC.Code.LDPC.ElimTanh as ElimTanh
 import qualified ECC.Code.LDPC.Accelerate as Accelerate
 
 codes :: Code
-codes = BPSK.code <> Reference.code <> ElimTanh.code <> Accelerate.code
+codes = BPSK.code <> Reference.code <> Accelerate.code
 
 -- usage: ./Main 0 2 4 6 8 0  bpsk
 -- or, to run the LDPC reference implementation, at a single EBNO = 2.2
