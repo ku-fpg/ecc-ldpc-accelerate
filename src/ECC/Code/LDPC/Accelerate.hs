@@ -18,8 +18,8 @@ import qualified Data.Vector.Unboxed as U
 import Data.Semigroup ((<>), Monoid, mconcat)
 
 -- Comment out one of these to build
---import Data.Array.Accelerate.Interpreter as I
-import Data.Array.Accelerate.CUDA as I
+import Data.Array.Accelerate.Interpreter as I
+--import Data.Array.Accelerate.CUDA as I
 
 import Data.Array.Accelerate hiding ((++), product, take, all, (!), fst, snd, zipWith, not, zip, or, map)
 import qualified Data.Array.Accelerate as A
