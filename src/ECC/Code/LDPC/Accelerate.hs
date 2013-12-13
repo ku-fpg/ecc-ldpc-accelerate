@@ -111,11 +111,12 @@ decoder_acc1 = Decoder
                                         -- all the left/right neibours
                                 , U.fromList vs
                                 )
-        , pre_lambda   = U.fromList
-        , check_parity =  \ (m_opt,m,_) lam -> not $ or $ BM64.parityMatVecMul m (BV64.fromList (fmap hard (U.toList lam)))
-        , post_lambda  =  map hard . U.toList
+        , pre_lambda   = \ lam -> use $ A.fromList (Z :. length lam) lam
+        , check_parity =  \ (m_opt,m,_) lamA -> not $ or $ BM64.parityMatVecMul m (BV64.fromList (fmap hard
+                                        (A.toList (run lamA))))
+        , post_lambda  =  map hard . A.toList . run
         , pre_ne       = \ (m_opt,_,mns) -> U.map (const 0) mns
-        , comp_ne      = \  share (m_opt,_,mns) lam ne ->
+        , comp_ne      = \  share (m_opt,_,mns) lamA ne ->
 
                 let vs = [ (m,n) | n <- [1..ncols m_opt], m <- [1..nrows m_opt], m_opt ! (m,n) == 1 ] in
 
@@ -123,7 +124,7 @@ decoder_acc1 = Decoder
                 let msA = use $ A.fromList (Z :. length vs) (map (pred . fst) vs) :: Acc (Array DIM1 Int) in
                 let nsA = use $ A.fromList (Z :. length vs) (map (pred . snd) vs) :: Acc (Array DIM1 Int) in
                 let neA = use $ A.fromList (Z :. length vs) (U.toList ne) :: Acc (Array DIM1 Double) in
-                let lamA = use $ A.fromList (Z :. U.length lam) (U.toList lam) :: Acc (Array DIM1 Double) in
+--                let lamA = use $ A.fromList (Z :. U.length lam) (U.toList lam) :: Acc (Array DIM1 Double) in
 
                 -- The new way
                 -- Flat array of values
@@ -165,8 +166,11 @@ decoder_acc1 = Decoder
 
                 (U.fromList (A.toList (run ans2A)))
 --                (traceShow comp ans1)
-        , comp_lam     = \ (m_opt,_,mns) orig_lam ne' ->
-                U.accum (+) orig_lam [ (n-1,v) | ((_,n),v) <- U.toList mns `zip` U.toList ne' ]
+        , comp_lam     = \ (m_opt,_,mns) orig_lam ne' -> use
+                $ A.fromList (Z :. (length (A.toList (run orig_lam))))
+                $ U.toList
+                $ U.accum (+) (U.fromList (A.toList (run orig_lam))) [ (n-1,v) | ((_,n),v) <- U.toList mns `zip` U.toList ne' ]
+
         , share = share_minsum :: Share Double [(Int,Double)] Int -- ignored
         }
 
