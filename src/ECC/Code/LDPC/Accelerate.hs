@@ -131,12 +131,14 @@ decoder_acc1 = Decoder
 
                 let interm_arrA = A.zipWith (\ n v -> - ((lamA A.! index1 n) - v)) nsA neA in
 
-                let falseA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift False) in
+                -- We use 0 to represent false
+                let falseA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (0 :: Word8)) in
 
-                let signA = A.permute (/=*)
+                -- not use boolean (this messed up on the CUDA version)
+                let signA = A.permute (Bits.xor)
                                       falseA    -- all +ve
                                       (\ ix -> index1 (msA A.! ix))
-                                      (A.map (<* 0) (interm_arrA)) :: Acc (Array DIM1 Bool) in
+                                      (A.map (\ x -> (x <* 0) ? (1,0)) (interm_arrA)) :: Acc (Array DIM1 Word8) in
 
 		let inf = 100000 :: Double in
 
@@ -155,7 +157,7 @@ decoder_acc1 = Decoder
 
                 let ans2A = A.zipWith (\ m v ->
 
-                                        let sgn = ((signA A.! index1 m) ==* (v <* 0)) ? (1,-1) :: Exp Double in
+                                        let sgn = ((1 ==* (signA A.! index1 m)) ==* (v <* 0)) ? (1,-1) :: Exp Double in
                                         let (a,b) = unlift (valA A.! index1 m) :: (Exp Double,Exp Double) in
                                         (a ==* abs v) ?
                                            ( (-0.75) * sgn * b
