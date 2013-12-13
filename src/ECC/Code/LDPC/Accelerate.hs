@@ -17,10 +17,12 @@ import qualified Data.Vector.Unboxed as U
 
 import Data.Semigroup ((<>), Monoid, mconcat)
 
-import Data.Array.Accelerate.Interpreter as I
+-- Comment out one of these to build
+--import Data.Array.Accelerate.Interpreter as I
+import Data.Array.Accelerate.CUDA as I
+
 import Data.Array.Accelerate hiding ((++), product, take, all, (!), fst, snd, zipWith, not, zip, or, map)
 import qualified Data.Array.Accelerate as A
-
 --import qualified Data.Array.Accelerate.Array.Sugar as Sugar
 --import qualified Data.Array.Accelerate.Array.Data as Data
 --import qualified Data.Array.Accelerate.Type as Type
@@ -135,8 +137,9 @@ decoder_acc1 = Decoder
                                       (\ ix -> index1 (msA A.! ix))
                                       (A.map (<* 0) (interm_arrA)) :: Acc (Array DIM1 Bool) in
 
+		let inf = 100000 :: Double in
 
-                let infsA = A.generate (index1 (lift (length vs))) (\ _ -> lift (1/0::Double,1/0::Double)) in
+                let infsA = A.generate (index1 (lift (length vs))) (\ _ -> lift (inf,inf)) in
 
                 let valA = A.permute
                                 (\ a12 b12 -> let (a1,a2) = unlift a12
@@ -147,7 +150,7 @@ decoder_acc1 = Decoder
                                                  ))
                                 infsA
                                 (\ ix -> index1 (msA A.! ix))
-                                (A.map (\ v -> lift (abs v,1/0::Double)) interm_arrA) :: Acc (Array DIM1 (Double,Double)) in
+                                (A.map (\ v -> lift (abs v,inf)) interm_arrA) :: Acc (Array DIM1 (Double,Double)) in
 
                 let ans2A = A.zipWith (\ m v ->
 
