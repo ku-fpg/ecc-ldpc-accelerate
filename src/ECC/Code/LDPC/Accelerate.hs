@@ -117,6 +117,32 @@ decoder_acc1 = Decoder
         , pre_ne       = \ (m_opt,_,mns) -> U.map (const 0) mns
         , comp_ne      = \  share (m_opt,_,mns) lamA ne ->
 
+		let inf = 100000 :: Double in
+
+        -- The old way
+
+                let lam = U.fromList (A.toList (run lamA)) in
+
+                let interm_arr = U.zipWith (\ (_,n) v -> - ((lam U.! (n-1)) - v)) mns ne in
+
+                let sign = U.accumulate (\ a b -> if b < 0 then not a else a)
+                                   (U.generate (nrows m_opt) (const False))
+                                   (U.zip (U.map (pred . fst) mns) interm_arr) in
+
+                let val = U.accumulate (\ (b,c) a -> if abs a <= b
+                                                     then (abs a,b)
+                                                     else (b,min (abs a) c))
+                                   (U.generate (nrows m_opt) (const (inf,inf)))     -- IEEE magic
+                                   (U.zip (U.map (pred . fst) mns) interm_arr) in
+
+                let ans2 = U.zipWith (\ (m,_) v ->
+                                        let sgn = if sign U.! (m-1) == (v < 0) then 1 else -1 in
+                                        let (a,b) = val U.! (m-1) in
+                                        if a == abs v
+                                        then (-0.75) * sgn * b
+                                        else (-0.75) * sgn * a
+                                     ) mns interm_arr in
+
                 let vs = [ (m,n) | n <- [1..ncols m_opt], m <- [1..nrows m_opt], m_opt ! (m,n) == 1 ] in
 
                 -- msA and nsA are (-1)'d to index into an array better
@@ -128,22 +154,25 @@ decoder_acc1 = Decoder
                 -- The new way
                 -- Flat array of values
 
-                let interm_arrA = A.zipWith (\ n v -> - ((lamA A.! index1 n) - v)) nsA neA in
+                let interm_arrA' = A.zipWith (\ n v -> - ((lamA A.! index1 n) - v)) nsA neA in
+
+                let interm_arrA = compareWith "interm_arrA" interm_arrA' interm_arr in
+
 
                 -- We use 0 to represent false
                 let falseA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (0 :: Word8)) in
 
                 -- not use boolean (this messed up on the CUDA version)
-                let signA = A.permute (Bits.xor)
+                let signA' = A.permute (Bits.xor)
                                       falseA    -- all +ve
                                       (\ ix -> index1 (msA A.! ix))
                                       (A.map (\ x -> (x <* 0) ? (1,0)) (interm_arrA)) :: Acc (Array DIM1 Word8) in
 
-		let inf = 100000 :: Double in
+                let signA = compareWith "signA" signA' (U.map (\ x -> if x then 1 else 0) sign) in
 
-                let infsA = A.generate (index1 (lift (length vs))) (\ _ -> lift (inf,inf)) in
+                let infsA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (inf,inf)) in
 
-                let valA = A.permute
+                let valA' = A.permute
                                 (\ a12 b12 -> let (a1,a2) = unlift a12
                                                   (b1,b2) = unlift b12
                                               in (a1 <=* b1)
@@ -154,8 +183,9 @@ decoder_acc1 = Decoder
                                 (\ ix -> index1 (msA A.! ix))
                                 (A.map (\ v -> lift (abs v,inf)) interm_arrA) :: Acc (Array DIM1 (Double,Double)) in
 
-                let ans2A = A.zipWith (\ m v ->
+                let valA = compareWith "valA" valA' val in
 
+                let ans2A' = A.zipWith (\ m v ->
                                         let sgn = ((1 ==* (signA A.! index1 m)) ==* (v <* 0)) ? (1,-1) :: Exp Double in
                                         let (a,b) = unlift (valA A.! index1 m) :: (Exp Double,Exp Double) in
                                         (a ==* abs v) ?
@@ -164,6 +194,7 @@ decoder_acc1 = Decoder
                                            ) :: Exp Double
                                      ) msA interm_arrA in
 
+                let ans2A = compareWith "ans2" ans2A' ans2 in
 
                 (U.fromList (A.toList (run ans2A)))
 --                (traceShow comp ans1)
@@ -177,5 +208,14 @@ decoder_acc1 = Decoder
 
 --encoder :: (Elt e, IsNum e) => G -> V e -> V e
 --encoder g v = mvm g v
+
+compareWith :: (U.Unbox d, Elt d, Eq d, Show d) =>  String -> Acc (Array DIM1 d) -> U.Vector d -> Acc (Array DIM1 d)
+compareWith msg a b =
+        if as == bs
+        then a
+        else error $ "compare failed for " ++ msg ++ show (length as, length bs, as,bs)
+  where
+        as = A.toList (run a)
+        bs = U.toList b
 
 
