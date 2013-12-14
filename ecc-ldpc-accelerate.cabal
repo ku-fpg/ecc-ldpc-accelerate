@@ -13,8 +13,8 @@ cabal-version:       >=1.8
 
 executable ecc-ldpc-accelerate
   build-depends:
-                accelerate == 0.14.0.0,
---                accelerate-cuda == 0.14.0.0,
+                accelerate      == 0.14.0.0,
+                accelerate-cmp  == 0.14.0.0,
                 array           == 0.4.*,
                 base            == 4.6.*,
                 matrix          == 0.2.*,
