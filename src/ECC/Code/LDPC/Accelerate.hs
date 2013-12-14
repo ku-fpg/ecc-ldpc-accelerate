@@ -172,13 +172,17 @@ decoder_acc1 = Decoder
 
                 let infsA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (inf,inf)) in
 
+
+                let bad = 999 :: Double in
                 let valA' = A.permute
                                 (\ a12 b12 -> let (a1,a2) = unlift a12
                                                   (b1,b2) = unlift b12
-                                              in (a1 <=* b1)
+                                              in (a1 >* a2) ? (lift (bad,bad),
+                                                 (b1 >* b2) ? (lift (bad,bad),
+                                                 (a1 <=* b1)
                                                ? ( lift (a1, min a2 b1)
                                                  , lift (b1, min b2 a1)
-                                                 ))
+                                                 ))))
                                 infsA
                                 (\ ix -> index1 (msA A.! ix))
                                 (A.map (\ v -> lift (abs v,inf)) interm_arrA) :: Acc (Array DIM1 (Double,Double)) in
@@ -217,5 +221,4 @@ compareWith msg a b =
   where
         as = A.toList (run a)
         bs = U.toList b
-
 
