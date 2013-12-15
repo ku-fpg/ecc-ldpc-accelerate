@@ -14,6 +14,7 @@ import Data.Matrix ((!))
 import Data.Matrix (nrows, ncols, getCol, getRow, colVector, rowVector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
+import qualified Data.List as L
 
 import Data.Semigroup ((<>), Monoid, mconcat)
 
@@ -103,12 +104,12 @@ takeRow n mat =
 -- First cut at using Accelerate
 decoder_acc1 = Decoder
         { pre_a        =  \ h ->
-                                let vs = [ (m,n) | n <- [1..ncols h], m <- [1..nrows h], h ! (m,n) == 1 ] in
+                                let vs = [ (m,n) | m <- [1..nrows h], n <- [1..ncols h], h ! (m,n) == 1 ] in
                                 ( h
                                         -- The bit vector for the parity check
                                 , BM64.fromLists [[ h ! (m,n) | n <- [1..ncols h]] | m <- [1..nrows h]]
                                         -- all the left/right neibours
-                                , U.fromList vs
+                                , U.fromList vs -- $ traceShow "X" vs
                                 )
         , pre_lambda   = \ lam -> use $ A.fromList (Z :. length lam) lam
         , check_parity =  \ (m_opt,m,_) lamA -> not $ or $ BM64.parityMatVecMul m (BV64.fromList (fmap hard
@@ -143,12 +144,24 @@ decoder_acc1 = Decoder
                                         else (-0.75) * sgn * a
                                      ) mns interm_arr in
 
-                let vs = [ (m,n) | n <- [1..ncols m_opt], m <- [1..nrows m_opt], m_opt ! (m,n) == 1 ] in
+                let vs = U.toList mns in
 
                 -- msA and nsA are (-1)'d to index into an array better
                 let msA = use $ A.fromList (Z :. length vs) (map (pred . fst) vs) :: Acc (Array DIM1 Int) in
                 let nsA = use $ A.fromList (Z :. length vs) (map (pred . snd) vs) :: Acc (Array DIM1 Int) in
-                let neA = use $ A.fromList (Z :. length vs) (U.toList ne) :: Acc (Array DIM1 Double) in
+
+                let esA = use $ A.fromList (Z :. length vs) [0..]                 :: Acc (Array DIM1 Int) in
+                let neA = use $ A.fromList (Z :. length vs) (U.toList ne)         :: Acc (Array DIM1 Double) in
+
+                let segA = use $ A.fromList (Z :. (nrows m_opt))
+                               $ map Prelude.length
+                               $ L.group
+                               $ map (pred . fst)
+                               $ vs
+
+                                                             :: Acc (A.Vector Int) in
+
+
 --                let lamA = use $ A.fromList (Z :. U.length lam) (U.toList lam) :: Acc (Array DIM1 Double) in
 
                 -- The new way
@@ -163,12 +176,11 @@ decoder_acc1 = Decoder
                 let falseA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (0 :: Word8)) in
 
                 -- not use boolean (this messed up on the CUDA version)
-                let signA' = A.permute (Bits.xor)
-                                      falseA    -- all +ve
-                                      (\ ix -> index1 (msA A.! ix))
-                                      (A.map (\ x -> (x <* 0) ? (1,0)) (interm_arrA)) :: Acc (Array DIM1 Word8) in
+                let signA' = fold1Seg (/=*)
+                                (A.map (\ v -> (v <* 0)) interm_arrA)
+                                segA :: Acc (Array DIM1 Bool) in
 
-                let signA = compareWith "signA" signA' (U.map (\ x -> if x then 1 else 0) sign) in
+                let signA = compareWith "signA" signA' sign in
 
                 let infsA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (inf,inf)) in
 
@@ -188,6 +200,34 @@ decoder_acc1 = Decoder
                                 (A.map (\ v -> lift (abs v,inf)) interm_arrA) :: Acc (Array DIM1 (Double,Double)) in
 -}
 
+
+{-                -- first find the max on a line
+                let mxA = A.permute min
+                                (A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift inf))
+                                (\ ix -> index1 (msA A.! ix))
+                                (A.map (\ v -> abs v) interm_arrA) :: Acc (Array DIM1 Double) in
+
+                let mx_ixA = A.permute max -- highest one
+                                (A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (-1 :: Int)))
+                                (\ ix -> index1 (msA A.! ix))
+                                (A.zipWith3 (\ v ix iy -> ((mxA A.! index1 ix) ==* v)
+                                                        ? ( iy
+                                                          , lift (-1 :: Int)
+                                                          )
+                                           ) interm_arrA msA esA) ::  Acc (Array DIM1 Int) in
+-}
+
+                let valA' = fold1Seg
+                                (\ a12 b12 -> let (a1,a2) = unlift a12
+                                                  (b1,b2) = unlift b12
+                                              in (a1 <=* b1)
+                                               ? ( lift (a1, min a2 b1)
+                                                 , lift (b1, min b2 a1)
+                                                 ))
+                                (A.map (\ v -> lift (abs v,inf)) interm_arrA)
+                                segA in
+
+{-
                 let valA' = (A.map (\ v -> lift (abs v,inf))
                         >-> (A.permute
                                 (\ a12 b12 -> let (a1,a2) = unlift a12
@@ -198,11 +238,12 @@ decoder_acc1 = Decoder
                                                  ))
                                 infsA
                                 (\ ix -> index1 (msA A.! ix)))) interm_arrA :: Acc (Array DIM1 (Double,Double)) in
+-}
 
                 let valA = compareWith "valA" valA' val in
 
                 let ans2A' = A.zipWith (\ m v ->
-                                        let sgn = ((1 ==* (signA A.! index1 m)) ==* (v <* 0)) ? (1,-1) :: Exp Double in
+                                        let sgn = (((signA A.! index1 m)) ==* (v <* 0)) ? (1,-1) :: Exp Double in
                                         let (a,b) = unlift (valA A.! index1 m) :: (Exp Double,Exp Double) in
                                         (a ==* abs v) ?
                                            ( (-0.75) * sgn * b
