@@ -59,15 +59,12 @@ type G = Matrix Bit
 
 encoder :: G -> [Bit] -> IO [Bit]
 --encoder g v | traceShow ("encoder",g,v) False = undefined
-encoder g v = do
---        print ("encoder2",(use $ toAccBitArray g), (use $ toAccBitVector v),r,length r)
-        return (v ++ r)
+encoder g = \ v -> return $ (v ++ (fromAccBitVector $ run_mvm (g',toAccBitVector v)))
   where
-        r = fromAccBitVector
-            $ run
-            $ mvm (use $ toAccBitArray g)
-                  (use $ toAccBitVector v)
---            = getRow 1 (Data.Matrix.multStd (rowVector v) g)
+        g' = toAccBitArray g
+
+run_mvm :: (Array DIM2 Word8,Vector Word8) -> Vector Word8
+run_mvm = run1 (A.uncurry mvm)
 
 toAccBitArray :: G -> Array DIM2 Word8
 toAccBitArray mat = A.fromList (Z :. nrows mat :. ncols mat)
@@ -210,6 +207,9 @@ decoder_acc1 = Decoder
         , share = share_minsum :: Share Double [(Int,Double)] Int -- ignored
         }
 
+
+
+
 --encoder :: (Elt e, IsNum e) => G -> V e -> V e
 --encoder g v = mvm g v
 
@@ -251,6 +251,24 @@ unpairQ a = (A.fromIntegral ((a `shiftR` 16) .&. 0xffff),A.fromIntegral (a .&. 0
 pairQ :: (Exp Word16,Exp Word16) -> Exp Word32
 pairQ (a,b) = (A.fromIntegral a `shiftL` 16) .|. A.fromIntegral b
 
+--------------------------------------------------------
+{-
+decoder2 :: (Semigroup ts) => Decoder m m_opt lam ne d ts i -> m -> Int -> [Double] -> IO [Bit]
+decoder2 dec a = \ !maxIterations inp -> do
+      let orig_lam = pre_lambda dec inp
 
+          loop !n ne lam
+            | check_parity dec a_opt lam   = lam
+            | n >= maxIterations           = orig_lam
+            | otherwise                    =
+                 let ne'  = {-# SCC ne' #-} comp_ne dec (share dec) a_opt lam      ne
+                     lam' = {-# SCC lam' #-} comp_lam dec a_opt orig_lam ne'
+                 in loop (n+1) ne' lam'
+
+      return $ post_lambda dec $ loop 0 orig_ne orig_lam
+   where
+      a_opt   = pre_a dec a
+      orig_ne = pre_ne dec a_opt
+-}
 
 
