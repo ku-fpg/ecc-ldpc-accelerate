@@ -67,22 +67,22 @@ encoder g = \ v -> return $ (v ++ (fromAccBitVector $ run1 f $ toAccBitVector v)
 run_mvm :: (Array DIM2 Word8,Vector Word8) -> Vector Word8
 run_mvm = run1 (A.uncurry mvm)
 
-squash :: [Word8] -> [Word8]
+squash :: [Word64] -> [Word64]
 squash [] = []
-squash xs = L.sum [ i * x | (i,x) <- L.iterate (*2) 1 `L.zip` L.take 8 xs ] : squash (L.drop 8 xs)
+squash xs = L.sum [ i * x | (i,x) <- L.iterate (*2) 1 `L.zip` L.take 64 xs ] : squash (L.drop 64 xs)
 
-expand :: [Word8] -> [Word8]
+expand :: [Word64] -> [Word64]
 expand []     = []
-expand (x:xs) = [ if Bits.testBit x i then 1^i else 0 | i <- [0..7]] ++ expand xs
+expand (x:xs) = [ if Bits.testBit x i then 1^i else 0 | i <- [0..63]] ++ expand xs
 
-toAccBitArray :: G -> Array DIM2 Word8
-toAccBitArray mat = A.fromList (Z :. nrows mat :. (ncols mat `div` 8)) $ squash
+toAccBitArray :: G -> Array DIM2 Word64
+toAccBitArray mat = A.fromList (Z :. nrows mat :. (ncols mat `div` 64)) $ squash
                 [ Prelude.fromIntegral $ mat ! (m,n) | m <- [1..nrows mat], n <- [1..ncols mat]]
 
-toAccBitVector :: [Bit] -> Vector Word8
+toAccBitVector :: [Bit] -> Vector Word64
 toAccBitVector vec = A.fromList (Z :. length vec) $ fmap (Prelude.fromIntegral) vec
 
-fromAccBitVector :: Vector Word8 -> [Bit]
+fromAccBitVector :: Vector Word64 -> [Bit]
 fromAccBitVector = fmap Prelude.fromIntegral . expand . A.toList
 {-
   where mask :: Word8 -> Bit
@@ -101,13 +101,13 @@ mvm mat vec =
 --  traceShow ("mvm vec'",run vec') $
   fold (+) 0 (A.transpose (A.zipWith (*) vec' mat))
 
-mvm' :: Acc (Array DIM2 Word8) -> Acc (Vector Word8) -> Acc (Vector Word8)
+mvm' :: Acc (Array DIM2 Word64) -> Acc (Vector Word64) -> Acc (Vector Word64)
 mvm' mat =
   let Z :. rows :. cols = unlift (shape mat) :: Z :. Exp Int :. Exp Int
       t = A.transpose mat
   in
         \ vec -> let vec' = A.replicate (lift (Z :. cols :. All))
-                          $ A.map (\ x -> (x ==* 0) ? (0x00,0xff))
+                          $ A.map (\ x -> (x ==* 0) ? (0x00,0xffffffffffffffff))
                           $ vec
                  in fold (Bits.xor) 0 (A.zipWith (.&.) t vec')
 
