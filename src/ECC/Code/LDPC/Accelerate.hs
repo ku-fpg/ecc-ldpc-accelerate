@@ -67,18 +67,28 @@ encoder g = \ v -> return $ (v ++ (fromAccBitVector $ run1 f $ toAccBitVector v)
 run_mvm :: (Array DIM2 Word8,Vector Word8) -> Vector Word8
 run_mvm = run1 (A.uncurry mvm)
 
+squash :: [Word8] -> [Word8]
+squash [] = []
+squash xs = L.sum [ i * x | (i,x) <- L.iterate (*2) 1 `L.zip` L.take 8 xs ] : squash (L.drop 8 xs)
+
+expand :: [Word8] -> [Word8]
+expand []     = []
+expand (x:xs) = [ if Bits.testBit x i then 1^i else 0 | i <- [0..7]] ++ expand xs
+
 toAccBitArray :: G -> Array DIM2 Word8
-toAccBitArray mat = A.fromList (Z :. nrows mat :. ncols mat)
+toAccBitArray mat = A.fromList (Z :. nrows mat :. (ncols mat `div` 8)) $ squash
                 [ Prelude.fromIntegral $ mat ! (m,n) | m <- [1..nrows mat], n <- [1..ncols mat]]
 
 toAccBitVector :: [Bit] -> Vector Word8
 toAccBitVector vec = A.fromList (Z :. length vec) $ fmap (Prelude.fromIntegral) vec
 
 fromAccBitVector :: Vector Word8 -> [Bit]
-fromAccBitVector = fmap mask . A.toList
+fromAccBitVector = fmap Prelude.fromIntegral . expand . A.toList
+{-
   where mask :: Word8 -> Bit
 --        mask = undefined
         mask = mkBit . flip Bits.testBit 0
+-}
 
 mvm :: (Elt e, IsNum e) => Acc (Array DIM2 e) -> Acc (Vector e) -> Acc (Vector e)
 mvm mat vec =
@@ -91,13 +101,15 @@ mvm mat vec =
 --  traceShow ("mvm vec'",run vec') $
   fold (+) 0 (A.transpose (A.zipWith (*) vec' mat))
 
-mvm' :: (Elt e, IsNum e) => Acc (Array DIM2 e) -> Acc (Vector e) -> Acc (Vector e)
+mvm' :: Acc (Array DIM2 Word8) -> Acc (Vector Word8) -> Acc (Vector Word8)
 mvm' mat =
   let Z :. rows :. cols = unlift (shape mat) :: Z :. Exp Int :. Exp Int
       t = A.transpose mat
   in
-        \ vec -> let vec' = A.replicate (lift (Z :. rows :. All)) vec
-                 in fold (+) 0 (A.zipWith (*) t vec')
+        \ vec -> let vec' = A.replicate (lift (Z :. cols :. All))
+                          $ A.map (\ x -> (x ==* 0) ? (0x00,0xff))
+                          $ vec
+                 in fold (Bits.xor) 0 (A.zipWith (.&.) t vec')
 
 --  traceShow ("mvm mat",run mat) $
 --  traceShow ("mvm vec",run vec) $
