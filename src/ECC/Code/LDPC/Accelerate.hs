@@ -59,9 +59,10 @@ type G = Matrix Bit
 
 encoder :: G -> [Bit] -> IO [Bit]
 --encoder g v | traceShow ("encoder",g,v) False = undefined
-encoder g = \ v -> return $ (v ++ (fromAccBitVector $ run_mvm (g',toAccBitVector v)))
+encoder g = \ v -> return $ (v ++ (fromAccBitVector $ run1 f $ toAccBitVector v))
   where
-        g' = toAccBitArray g
+        f = mvm' g'
+        g' = use $ toAccBitArray g
 
 run_mvm :: (Array DIM2 Word8,Vector Word8) -> Vector Word8
 run_mvm = run1 (A.uncurry mvm)
@@ -89,6 +90,20 @@ mvm mat vec =
 --  traceShow ("mvm rows",rows) $
 --  traceShow ("mvm vec'",run vec') $
   fold (+) 0 (A.transpose (A.zipWith (*) vec' mat))
+
+mvm' :: (Elt e, IsNum e) => Acc (Array DIM2 e) -> Acc (Vector e) -> Acc (Vector e)
+mvm' mat =
+  let Z :. rows :. cols = unlift (shape mat) :: Z :. Exp Int :. Exp Int
+  in
+        \ vec -> let vec' = A.replicate (lift (Z :. All :. cols)) vec
+                 in fold (+) 0 (A.transpose (A.zipWith (*) vec' mat))
+
+--  traceShow ("mvm mat",run mat) $
+--  traceShow ("mvm vec",run vec) $
+--  traceShow ("mvm rows",rows) $
+--  traceShow ("mvm vec'",run vec') $
+
+
 
 takeRow :: (Elt e, IsNum e) => Exp Int -> Acc (Array DIM2 e) -> Acc (Vector e)
 takeRow n mat =
