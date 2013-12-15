@@ -101,16 +101,14 @@ takeRow n mat =
                  mat
 
 
-
--- First cut at using Accelerate
 decoder_acc1 = Decoder
         { pre_a        =  \ h ->
-                                let vs = [ (m,n) | m <- [1..nrows h], n <- [1..ncols h], h ! (m,n) == 1 ] in
+                                let vs = [ (m,n) | m <- [1..nrows h],n <- [1..ncols h], h ! (m,n) == 1 ] in
                                 ( h
                                         -- The bit vector for the parity check
                                 , BM64.fromLists [[ h ! (m,n) | n <- [1..ncols h]] | m <- [1..nrows h]]
                                         -- all the left/right neibours
-                                , U.fromList vs -- $ traceShow "X" vs
+                                , U.fromList vs
                                 )
         , pre_lambda   = \ lam -> use $ A.fromList (Z :. length lam) lam
         , check_parity =  \ (m_opt,m,_) lamA -> not $ or $ BM64.parityMatVecMul m (BV64.fromList (fmap hard
@@ -119,25 +117,23 @@ decoder_acc1 = Decoder
         , pre_ne       = \ (m_opt,_,mns) -> U.map (const 0) mns
         , comp_ne      = \  share (m_opt,_,mns) lamA ne ->
 
-		let inf = 100000 :: Double in
-
-        -- The old way
-
                 let lam = U.fromList (A.toList (run lamA)) in
 
+                -- The new way
+                -- Flat array of values
                 let interm_arr = U.zipWith (\ (_,n) v -> - ((lam U.! (n-1)) - v)) mns ne in
+
+                let inf = 10000 in
 
                 let sign = U.accumulate (\ a b -> if b < 0 then not a else a)
                                    (U.generate (nrows m_opt) (const False))
                                    (U.zip (U.map (pred . fst) mns) interm_arr) in
 
-                let val = U.map (\ (a,b) -> (q a, q b))
-                        $ U.accumulate (\ (b,c) a -> if abs a <= b
+                let val = U.accumulate (\ (b,c) a -> if abs a <= b
                                                      then (abs a,b)
                                                      else (b,min (abs a) c))
                                    (U.generate (nrows m_opt) (const (inf,inf)))     -- IEEE magic
                                    (U.zip (U.map (pred . fst) mns) interm_arr) in
-
                 let ans2 = U.zipWith (\ (m,_) v ->
                                         let sgn = if sign U.! (m-1) == (v < 0) then 1 else -1 in
                                         let (a,b) = val U.! (m-1) in
@@ -145,6 +141,7 @@ decoder_acc1 = Decoder
                                         then (-0.75) * sgn * b
                                         else (-0.75) * sgn * a
                                      ) mns interm_arr in
+
 
                 let vs = U.toList mns in
 
@@ -155,124 +152,56 @@ decoder_acc1 = Decoder
                 let esA = use $ A.fromList (Z :. length vs) [0..]                 :: Acc (Array DIM1 Int) in
                 let neA = use $ A.fromList (Z :. length vs) (U.toList ne)         :: Acc (Array DIM1 Double) in
 
+                let debug xs = traceShow (A.toList $ run xs) xs in
+
                 let segA = use $ A.fromList (Z :. (nrows m_opt))
                                $ map Prelude.length
                                $ L.group
                                $ map (pred . fst)
                                $ vs
-
                                                              :: Acc (A.Vector Int) in
-
-
---                let lamA = use $ A.fromList (Z :. U.length lam) (U.toList lam) :: Acc (Array DIM1 Double) in
-
-                -- The new way
-                -- Flat array of values
 
                 let interm_arrA' = A.zipWith (\ n v -> - ((lamA A.! index1 n) - v)) nsA neA in
 
                 let interm_arrA = compareWith "interm_arrA" interm_arrA' interm_arr in
 
+                let interm_arr2A = A.map quant interm_arrA in
 
-                -- We use 0 to represent false
-                let falseA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (0 :: Word8)) in
-
-                -- not use boolean (this messed up on the CUDA version)
+               -- not use boolean (this messed up on the CUDA version)
                 let signA' = fold1Seg (/=*)
                                 (A.map (\ v -> (v <* 0)) interm_arrA)
                                 segA :: Acc (Array DIM1 Bool) in
 
-                let signA = compareWith "signA" signA' sign in
+                let !signA = compareWith "signA" signA' sign in
 
                 let infsA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (inf,inf)) in
 
-                let debug xs = traceShow (A.toList $ run xs) xs in
-
-
-                let bad = 999 :: Double in
-
-{-
-                let valA' = A.permute
-                                (\ a12 b12 -> let (a1,a2) = unlift a12
-                                                  (b1,b2) = unlift b12
-                                              in (a1 <=* b1)
-                                               ? ( lift (a1, min a2 b1)
-                                                 , lift (b1, min b2 a1)
-                                                 ))
-                                infsA
-                                (\ ix -> index1 (msA A.! ix))
-                                (A.map (\ v -> lift (abs v,inf)) interm_arrA) :: Acc (Array DIM1 (Double,Double)) in
--}
-
-
-{-                -- first find the max on a line
-                let mxA = A.permute min
-                                (A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift inf))
-                                (\ ix -> index1 (msA A.! ix))
-                                (A.map (\ v -> abs v) interm_arrA) :: Acc (Array DIM1 Double) in
-
-                let mx_ixA = A.permute max -- highest one
-                                (A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (-1 :: Int)))
-                                (\ ix -> index1 (msA A.! ix))
-                                (A.zipWith3 (\ v ix iy -> ((mxA A.! index1 ix) ==* v)
-                                                        ? ( iy
-                                                          , lift (-1 :: Int)
-                                                          )
-                                           ) interm_arrA msA esA) ::  Acc (Array DIM1 Int) in
--}
-{-
-
-                let valA' = fold1Seg
-                                (\ a12 b12 -> let (a1,a2) = unlift a12
-                                                  (b1,b2) = unlift b12
-                                              in (a1 <=* b1)
-                                               ? ( lift (a1, min a2 b1)
-                                                 , lift (b1, min b2 a1)
-                                                 ))
-                                (A.map (\ v -> lift (quant v,infQ)) (debug interm_arrA))
-                                segA in
-
--}
-                let valA' = A.map (\ v -> let (a1,a2) = unpairQ v
-                                          in lift (unquant a1, unquant a2))
-                          $ fold1Seg
+                let valA = fold1Seg
                                 (\ a12 b12 -> let (a1,a2) = unpairQ a12
                                                   (b1,b2) = unpairQ b12
                                               in (a1 <=* b1)
                                                ? ( pairQ (a1, min a2 b1)
                                                  , pairQ (b1, min b2 a1)
                                                  ))
-                                (A.map (\ v -> pairQ (quant v,infQ)) (debug interm_arrA))
-                                segA :: Acc (Array DIM1 (Double,Double)) in
+                                (A.map (\ v -> pairQ (v,infQ)) (interm_arr2A))
+                                segA :: Acc (Array DIM1 Word32) in
 
-{-
-                let valA' = (A.map (\ v -> lift (abs v,inf))
-                        >-> (A.permute
-                                (\ a12 b12 -> let (a1,a2) = unlift a12
-                                                  (b1,b2) = unlift b12
-                                              in (a1 <=* b1)
-                                               ? ( lift (a1, min a2 b1)
-                                                 , lift (b1, min b2 a1)
-                                                 ))
-                                infsA
-                                (\ ix -> index1 (msA A.! ix)))) interm_arrA :: Acc (Array DIM1 (Double,Double)) in
--}
+--                let !valA' = compareWith "valA" valA (U.map (\ (a,b) -> unlift $ pairQ $ (quant $ lift a, quant $ lift b)) val) in
 
-                let valA = compareWith "valA" valA' val in
-
-                let ans2A' = A.zipWith (\ m v ->
+                let ans2A' = A.zipWith3 (\ m v v2 ->
                                         let sgn = (((signA A.! index1 m)) ==* (v <* 0)) ? (1,-1) :: Exp Double in
-                                        let (a,b) = unlift (valA A.! index1 m) :: (Exp Double,Exp Double) in
-                                        (a ==* abs v) ?
-                                           ( (-0.75) * sgn * b
-                                           , (-0.75) * sgn * a
+                                        let (a,b) = unpairQ (valA A.! index1 m) in
+                                        (a ==* v2) ?
+                                           ( (-0.75) * sgn * unquant b
+                                           , (-0.75) * sgn * unquant a
                                            ) :: Exp Double
-                                     ) msA interm_arrA in
+                                     ) msA interm_arrA interm_arr2A in
 
-                let ans2A = compareWith "ans2" ans2A' ans2 in
+                let !ans2A = compareWith' "ans2" ans2A' (ans2) in
 
-                (U.fromList (A.toList (run ans2A)))
+--                (U.fromList (A.toList (run ans2A)))
 --                (traceShow comp ans1)
+                ans2
         , comp_lam     = \ (m_opt,_,mns) orig_lam ne' -> use
                 $ A.fromList (Z :. (length (A.toList (run orig_lam))))
                 $ U.toList
@@ -292,6 +221,16 @@ compareWith msg a b =
   where
         as = A.toList (run a)
         bs = U.toList b
+
+--compareWith' :: (U.Unbox d, Elt d, Eq d, Show d) =>  String -> Acc (Array DIM1 d) -> U.Vector d -> Acc (Array DIM1 d)
+compareWith' msg a b =
+        if L.and [abs(a-b) < (0.01 :: Double) | (a,b) <- as `zip` bs ]
+        then a
+        else error $ "compare failed for " ++ msg ++ show (length as, length bs, as,bs)
+  where
+        as = A.toList (run a)
+        bs = U.toList b
+
 
 q :: Double -> Double
 q n = Prelude.fromIntegral (Prelude.round (abs n * 256)) / 256
