@@ -184,6 +184,8 @@ decoder_acc1 = Decoder
 
                 let infsA = A.generate (index1 (lift (nrows m_opt))) (\ _ -> lift (inf,inf)) in
 
+                let debug xs = traceShow (A.toList $ run xs) xs in
+
 
                 let bad = 999 :: Double in
 
@@ -224,7 +226,7 @@ decoder_acc1 = Decoder
                                                ? ( lift (a1, min a2 b1)
                                                  , lift (b1, min b2 a1)
                                                  ))
-                                (A.map (\ v -> lift (abs v,inf)) interm_arrA)
+                                (A.map (\ v -> lift (abs v,inf)) (debug interm_arrA))
                                 segA in
 
 {-
