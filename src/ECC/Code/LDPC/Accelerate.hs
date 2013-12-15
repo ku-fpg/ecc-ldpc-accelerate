@@ -5,6 +5,7 @@ module ECC.Code.LDPC.Accelerate where
 -- Reference implementation of LDPC
 
 import Data.Bit
+import Data.Bits ((.&.),(.|.))
 import ECC.Code.LDPC.Utils
 import ECC.Types
 import ECC.Puncture
@@ -130,7 +131,8 @@ decoder_acc1 = Decoder
                                    (U.generate (nrows m_opt) (const False))
                                    (U.zip (U.map (pred . fst) mns) interm_arr) in
 
-                let val = U.accumulate (\ (b,c) a -> if abs a <= b
+                let val = U.map (\ (a,b) -> (q a, q b))
+                        $ U.accumulate (\ (b,c) a -> if abs a <= b
                                                      then (abs a,b)
                                                      else (b,min (abs a) c))
                                    (U.generate (nrows m_opt) (const (inf,inf)))     -- IEEE magic
@@ -218,6 +220,7 @@ decoder_acc1 = Decoder
                                                           )
                                            ) interm_arrA msA esA) ::  Acc (Array DIM1 Int) in
 -}
+{-
 
                 let valA' = fold1Seg
                                 (\ a12 b12 -> let (a1,a2) = unlift a12
@@ -226,8 +229,21 @@ decoder_acc1 = Decoder
                                                ? ( lift (a1, min a2 b1)
                                                  , lift (b1, min b2 a1)
                                                  ))
-                                (A.map (\ v -> lift (abs v,inf)) (debug interm_arrA))
+                                (A.map (\ v -> lift (quant v,infQ)) (debug interm_arrA))
                                 segA in
+
+-}
+                let valA' = A.map (\ v -> let (a1,a2) = unpairQ v
+                                          in lift (unquant a1, unquant a2))
+                          $ fold1Seg
+                                (\ a12 b12 -> let (a1,a2) = unpairQ a12
+                                                  (b1,b2) = unpairQ b12
+                                              in (a1 <=* b1)
+                                               ? ( pairQ (a1, min a2 b1)
+                                                 , pairQ (b1, min b2 a1)
+                                                 ))
+                                (A.map (\ v -> pairQ (quant v,infQ)) (debug interm_arrA))
+                                segA :: Acc (Array DIM1 (Double,Double)) in
 
 {-
                 let valA' = (A.map (\ v -> lift (abs v,inf))
@@ -276,4 +292,26 @@ compareWith msg a b =
   where
         as = A.toList (run a)
         bs = U.toList b
+
+q :: Double -> Double
+q n = Prelude.fromIntegral (Prelude.round (abs n * 256)) / 256
+
+-- abs and into 16 bits of info
+quant :: Exp Double -> Exp Word16
+quant n = A.round (abs n * 256)
+
+unquant :: Exp Word16 -> Exp Double
+unquant n = A.fromIntegral n / 256
+
+infQ :: Exp Word16
+infQ = 0xffff           -- max value for Word16
+
+unpairQ :: Exp Word32 -> (Exp Word16,Exp Word16)
+unpairQ a = (A.fromIntegral ((a `shiftR` 16) .&. 0xffff),A.fromIntegral (a .&. 0xffff))
+
+pairQ :: (Exp Word16,Exp Word16) -> Exp Word32
+pairQ (a,b) = (A.fromIntegral a `shiftL` 16) .|. A.fromIntegral b
+
+
+
 
