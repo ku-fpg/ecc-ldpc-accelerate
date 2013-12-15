@@ -94,9 +94,10 @@ mvm mat vec =
 mvm' :: (Elt e, IsNum e) => Acc (Array DIM2 e) -> Acc (Vector e) -> Acc (Vector e)
 mvm' mat =
   let Z :. rows :. cols = unlift (shape mat) :: Z :. Exp Int :. Exp Int
+      t = A.transpose mat
   in
-        \ vec -> let vec' = A.replicate (lift (Z :. All :. cols)) vec
-                 in fold (+) 0 (A.transpose (A.zipWith (*) vec' mat))
+        \ vec -> let vec' = A.replicate (lift (Z :. rows :. All)) vec
+                 in fold (+) 0 (A.zipWith (*) t vec')
 
 --  traceShow ("mvm mat",run mat) $
 --  traceShow ("mvm vec",run vec) $
